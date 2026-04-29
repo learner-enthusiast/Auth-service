@@ -3,6 +3,8 @@ import {
   authorizeGet,
   authorizePost,
   createOidcClient,
+  getMyOidcClientByClientId,
+  listMyOidcClients,
   token,
   userinfo,
 } from "../controllers/oidc.controller";
@@ -15,5 +17,7 @@ router.post("/authorize", authorizePost);
 router.post("/clients", requireAuth, createOidcClient);
 router.post("/token", token);
 router.get("/userinfo", userinfo);
+router.get("/clients", requireAuth, listMyOidcClients);
+router.get("/clients/:clientId", requireAuth, getMyOidcClientByClientId);
 
 export default router;

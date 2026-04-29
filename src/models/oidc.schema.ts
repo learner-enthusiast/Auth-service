@@ -69,6 +69,7 @@ export const oidcClients = pgTable("oidc_clients", {
   clientName: varchar("client_name", { length: 50 }).notNull(),
   // store as comma-separated list for MVP
   redirectUris: text("redirect_uris").notNull(),
+  userId: integer("user_id").notNull(),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

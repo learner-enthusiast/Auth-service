@@ -10,7 +10,33 @@ import { oidcDiscovery, oidcJwks } from "./controllers/oidc.controller";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+const whitelist = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://yourapp.com",
+];
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // allow Postman/server-to-server (no origin)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (whitelist.includes(origin)) {
+        return callback(null, true);
+      }
+
+      callback(new Error("Not allowed by CORS"));
+    },
+
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static("public"));

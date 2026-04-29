@@ -71,19 +71,19 @@ async function getOidcClientAnySource(clientId: string): Promise<{
   }
 
   // Fallback: env-configured client (legacy MVP behavior) Whitelisted IPS
-  const envClientId = process.env.OIDC_CLIENT_ID ?? "oidc-client";
-  if (clientId !== envClientId) return null;
+  // const envClientId = process.env.OIDC_CLIENT_ID ?? "oidc-client";
+  // if (clientId !== envClientId) return null;
 
-  const redirectUrisRaw =
-    process.env.OIDC_REDIRECT_URIS ?? "http://localhost:5173/callback";
-  const redirectUris = parseRedirectUrisRaw(redirectUrisRaw);
-  const clientSecret = process.env.OIDC_CLIENT_SECRET;
+  // const redirectUrisRaw =
+  //   process.env.OIDC_REDIRECT_URIS ?? "http://localhost:5173/callback";
+  // const redirectUris = parseRedirectUrisRaw(redirectUrisRaw);
+  // const clientSecret = process.env.OIDC_CLIENT_SECRET;
 
-  return {
-    clientId: envClientId,
-    clientSecret: clientSecret?.trim() ? clientSecret : undefined,
-    redirectUris,
-  };
+  // return {
+  //   clientId: envClientId,
+  //   clientSecret: clientSecret?.trim() ? clientSecret : undefined,
+  //   redirectUris,
+  // };
 }
 
 export async function oidcDiscovery(_req: Request, res: Response) {
@@ -131,19 +131,17 @@ export const authorizeGet = asyncHandler(
       throw new ApiError(400, "invalid redirect_uri");
     }
 
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(
-          200,
-          {
-            clientName: client.clientName,
-            redirectUri: redirectUri,
-            clientId: client.clientId,
-          },
-          "Client_id is valid",
-        ),
-      );
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          clientName: client.clientName,
+          redirectUri: redirectUri,
+          clientId: client.clientId,
+        },
+        "Client_id is valid",
+      ),
+    );
   },
 );
 export const authorizePost = asyncHandler(
@@ -366,6 +364,7 @@ export const createOidcClient = asyncHandler(
           clientName: organisationName,
           clientSecret: clientSecretHash,
           redirectUris: redirectUris.join(","),
+          userId: req?.user.id,
         })
         .returning({
           clientId: oidcClients.clientId,
@@ -437,3 +436,78 @@ export async function userinfo(req: Request, res: Response) {
 
   return res.json(claims);
 }
+
+export const listMyOidcClients = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user.id;
+
+    const clients = await db.query.oidcClients.findMany({
+      where: eq(oidcClients.userId, userId),
+      columns: {
+        clientId: true,
+        clientName: true,
+        redirectUris: true,
+        createdAt: true,
+      },
+      orderBy: (t, { desc }) => [desc(t.createdAt)],
+    });
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          clients: clients.map((c) => ({
+            clientId: c.clientId,
+            clientName: c.clientName,
+            redirectUris: parseRedirectUrisRaw(c.redirectUris),
+            createdAt: c.createdAt,
+          })),
+        },
+        "Clients fetched",
+      ),
+    );
+  },
+);
+
+export const getMyOidcClientByClientId = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user.id;
+    const clientId = String(req.params.clientId ?? "").trim();
+
+    if (!clientId) {
+      throw new ApiError(400, "clientId is required");
+    }
+
+    const client = await db.query.oidcClients.findFirst({
+      where: and(
+        eq(oidcClients.userId, userId),
+        eq(oidcClients.clientId, clientId),
+      ),
+      columns: {
+        clientId: true,
+        clientName: true,
+        redirectUris: true,
+        createdAt: true,
+      },
+    });
+
+    if (!client) {
+      throw new ApiError(404, "Client not found");
+    }
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          client: {
+            clientId: client.clientId,
+            clientName: client.clientName,
+            redirectUris: parseRedirectUrisRaw(client.redirectUris),
+            createdAt: client.createdAt,
+          },
+        },
+        "Client fetched",
+      ),
+    );
+  },
+);

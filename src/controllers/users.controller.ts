@@ -7,10 +7,7 @@ import { users } from "../models/user.schema";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
-const options = {
-  httpOnly: true,
-  secure: true,
-};
+
 export const getCurrentUser = asyncHandler(
   async (req: Request, res: Response) => {
     const user = await db.query.users.findFirst({

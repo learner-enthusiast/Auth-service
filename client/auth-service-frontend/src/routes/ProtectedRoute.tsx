@@ -19,7 +19,10 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     }
   }, [accessToken, cookieToken, refreshFromCookies]);
 
-  if (!(accessToken ?? cookieToken)) {
+  if (!accessToken) {
+    // If a cookie token exists, give AuthContext a chance to hydrate.
+    // (Otherwise we'd redirect before the effect runs.)
+    if (cookieToken) return null;
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 

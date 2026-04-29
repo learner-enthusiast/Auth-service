@@ -13,15 +13,35 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 
+type AuthedRequest = Request & {
+  user?: {
+    id: number;
+    email: string;
+    username: string;
+  };
+};
+
 function sanitizeUser(user: any) {
   // Avoid returning secrets (hashes/tokens)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { passwordHash, refreshToken, ...safe } = user;
   return safe;
 }
-const options = {
+
+const isProd = process.env.NODE_ENV === "production";
+
+const accessTokenCookieOptions = {
+  httpOnly: false,
+  secure: isProd,
+  sameSite: "lax" as const,
+  path: "/",
+};
+
+const refreshTokenCookieOptions = {
   httpOnly: true,
-  secure: true,
+  secure: isProd,
+  sameSite: "lax" as const,
+  path: "/",
 };
 export const register = asyncHandler(async (req: Request, res: Response) => {
   const { username, email, password, fullName, phone } = req.body ?? {};
@@ -137,8 +157,8 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
   return res
     .status(201)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
+    .cookie("accessToken", accessToken, accessTokenCookieOptions)
+    .cookie("refreshToken", refreshTokenRaw, refreshTokenCookieOptions)
     .json(
       new ApiResponse(
         201,
@@ -194,8 +214,8 @@ export const refreshToken = asyncHandler(
 
     return res
       .status(200)
-      .cookie("accessToken", accessToken, options)
-      .cookie("refreshToken", refreshToken, options)
+      .cookie("accessToken", accessToken, accessTokenCookieOptions)
+      .cookie("refreshToken", refreshTokenRaw, refreshTokenCookieOptions)
       .json(
         new ApiResponse(
           200,
@@ -211,7 +231,7 @@ export const refreshToken = asyncHandler(
   },
 );
 
-export async function logout(req: Request, res: Response) {
+export async function logout(req: AuthedRequest, res: Response) {
   const { refreshToken: token } = req.body ?? {};
 
   // Prefer refresh token logout (works even if access expired)
@@ -224,8 +244,8 @@ export async function logout(req: Request, res: Response) {
       .where(eq(users.id, userId));
     return res
       .status(204)
-      .clearCookie("accessToken", options)
-      .clearCookie("refreshToken", options);
+      .clearCookie("accessToken", accessTokenCookieOptions)
+      .clearCookie("refreshToken", refreshTokenCookieOptions);
   }
 
   // Fallback: if already authenticated, revoke the stored refresh token
@@ -238,6 +258,6 @@ export async function logout(req: Request, res: Response) {
 
   return res
     .status(204)
-    .clearCookie("accessToken", options)
-    .clearCookie("refreshToken", options);
+    .clearCookie("accessToken", accessTokenCookieOptions)
+    .clearCookie("refreshToken", refreshTokenCookieOptions);
 }
