@@ -41,6 +41,7 @@ export type IdTokenClaims = {
   email_verified?: boolean;
   name?: string;
   picture?: string;
+  userName?: string;
 };
 
 export function signIdToken(input: {

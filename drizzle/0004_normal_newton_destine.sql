@@ -1,0 +1,1 @@
+ALTER TABLE "oidc_clients" ADD COLUMN "client_name" varchar(50) NOT NULL;

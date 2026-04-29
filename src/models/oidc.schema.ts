@@ -8,9 +8,6 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-// Minimal OIDC Provider storage.
-// - Clients are configured via env (not stored in DB in this MVP).
-
 export const oidcAuthCodes = pgTable("oidc_auth_codes", {
   id: serial("id").primaryKey(),
 
@@ -23,11 +20,6 @@ export const oidcAuthCodes = pgTable("oidc_auth_codes", {
 
   scope: text("scope").notNull(),
   nonce: text("nonce"),
-
-  codeChallenge: text("code_challenge").notNull(),
-  codeChallengeMethod: varchar("code_challenge_method", { length: 16 })
-    .notNull()
-    .default("S256"),
 
   expiresAt: timestamp("expires_at").notNull(),
   consumedAt: timestamp("consumed_at"),
@@ -71,12 +63,12 @@ export const oidcRefreshTokens = pgTable("oidc_refresh_tokens", {
 });
 
 export const oidcClients = pgTable("oidc_clients", {
-  // Optional: keep a DB-backed client registry if you want later.
   id: serial("id").primaryKey(),
   clientId: varchar("client_id", { length: 128 }).notNull().unique(),
   clientSecret: text("client_secret"),
+  clientName: varchar("client_name", { length: 50 }).notNull(),
   // store as comma-separated list for MVP
   redirectUris: text("redirect_uris").notNull(),
-  isConfidential: boolean("is_confidential").default(false).notNull(),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

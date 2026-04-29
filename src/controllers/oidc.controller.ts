@@ -7,33 +7,24 @@ import { users } from "../models/user.schema";
 import {
   oidcAccessTokens,
   oidcAuthCodes,
-  oidcRefreshTokens,
+  oidcClients,
 } from "../models/oidc.schema";
 import {
-  getOidcClient,
   hashToken,
   issuer,
   isValidRedirectUri,
-  parseBasicAuth,
   parseScope,
-  pkceVerifyS256,
   randomToken,
-  requireOpenIdScope,
 } from "../utils/oidc";
 import { signIdToken } from "../utils/oidcSign";
 import fs from "node:fs";
 import path from "node:path";
-
-function nowSeconds() {
-  return Math.floor(Date.now() / 1000);
-}
+import { asyncHandler } from "../utils/asyncHandler";
+import { ApiError } from "../utils/ApiError";
+import { ApiResponse } from "../utils/ApiResponse";
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60_000);
-}
-
-function addDays(date: Date, days: number) {
-  return new Date(date.getTime() + days * 24 * 60 * 60_000);
 }
 
 function oauthRedirect(
@@ -47,86 +38,52 @@ function oauthRedirect(
   return u.toString();
 }
 
-function oauthError(
-  redirectUri: string,
-  error: string,
-  state?: string,
-  description?: string,
-) {
-  return oauthRedirect(redirectUri, {
-    error,
-    error_description: description,
-    state,
-  });
+function parseRedirectUrisRaw(raw: string): string[] {
+  return String(raw)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
-function clientAuthOk(
-  req: Request,
-  client: { clientId: string; clientSecret?: string },
-) {
-  if (!client.clientSecret) {
-    // public client
-    return true;
-  }
-
-  const basic = parseBasicAuth(req.header("authorization"));
-  if (basic) {
-    return (
-      basic.username === client.clientId &&
-      basic.password === client.clientSecret
-    );
-  }
-
-  const bodySecret = (req.body?.client_secret ?? "") as string;
-  return bodySecret === client.clientSecret;
-}
-
-function renderLoginForm(input: {
-  action: string;
+async function getOidcClientAnySource(clientId: string): Promise<{
   clientId: string;
-  redirectUri: string;
-  responseType: string;
-  scope: string;
-  state?: string;
-  nonce?: string;
-  codeChallenge: string;
-  codeChallengeMethod: string;
-}) {
-  const hidden = (name: string, value?: string) =>
-    `<input type="hidden" name="${name}" value="${(value ?? "").replaceAll('"', "&quot;")}" />`;
+  redirectUris: string[];
+  clientSecret?: string;
+  clientSecretHash?: string;
+  clientName: string;
+} | null> {
+  if (!clientId) return null;
 
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Login</title>
-  </head>
-  <body>
-    <main style="max-width: 420px; margin: 40px auto; font-family: system-ui, sans-serif;">
-      <h1 style="margin: 0 0 12px;">Sign in</h1>
-      <p style="margin: 0 0 20px; color: #444;">Client: ${input.clientId}</p>
-      <form method="post" action="${input.action}">
-        ${hidden("client_id", input.clientId)}
-        ${hidden("redirect_uri", input.redirectUri)}
-        ${hidden("response_type", input.responseType)}
-        ${hidden("scope", input.scope)}
-        ${hidden("state", input.state)}
-        ${hidden("nonce", input.nonce)}
-        ${hidden("code_challenge", input.codeChallenge)}
-        ${hidden("code_challenge_method", input.codeChallengeMethod)}
+  const row = await db.query.oidcClients.findFirst({
+    where: eq(oidcClients.clientId, clientId),
+  });
 
-        <label style="display:block; margin: 0 0 6px;">Email or username</label>
-        <input name="emailOrUsername" autocomplete="username" required style="width: 100%; padding: 10px;" />
+  if (row) {
+    const secret = row.clientSecret ?? undefined;
+    const looksBcrypt = typeof secret === "string" && secret.startsWith("$2");
+    return {
+      clientId: row.clientId,
+      clientSecretHash: looksBcrypt ? secret : undefined,
+      clientSecret: !looksBcrypt ? secret : undefined,
+      redirectUris: parseRedirectUrisRaw(row.redirectUris),
+      clientName: row.clientName,
+    };
+  }
 
-        <label style="display:block; margin: 12px 0 6px;">Password</label>
-        <input name="password" type="password" autocomplete="current-password" required style="width: 100%; padding: 10px;" />
+  // Fallback: env-configured client (legacy MVP behavior) Whitelisted IPS
+  const envClientId = process.env.OIDC_CLIENT_ID ?? "oidc-client";
+  if (clientId !== envClientId) return null;
 
-        <button type="submit" style="margin-top: 16px; width: 100%; padding: 10px;">Continue</button>
-      </form>
-    </main>
-  </body>
-</html>`;
+  const redirectUrisRaw =
+    process.env.OIDC_REDIRECT_URIS ?? "http://localhost:5173/callback";
+  const redirectUris = parseRedirectUrisRaw(redirectUrisRaw);
+  const clientSecret = process.env.OIDC_CLIENT_SECRET;
+
+  return {
+    clientId: envClientId,
+    clientSecret: clientSecret?.trim() ? clientSecret : undefined,
+    redirectUris,
+  };
 }
 
 export async function oidcDiscovery(_req: Request, res: Response) {
@@ -159,401 +116,278 @@ export async function oidcJwks(_req: Request, res: Response) {
   res.type("json").send(raw);
 }
 
-export async function authorizeGet(req: Request, res: Response) {
-  const clientId = String(req.query.client_id ?? "");
-  const redirectUri = String(req.query.redirect_uri ?? "");
-  const responseType = String(req.query.response_type ?? "");
-  const scope = String(req.query.scope ?? "");
-  const state = req.query.state ? String(req.query.state) : undefined;
-  const nonce = req.query.nonce ? String(req.query.nonce) : undefined;
-  const codeChallenge = String(req.query.code_challenge ?? "");
-  const codeChallengeMethod = String(req.query.code_challenge_method ?? "");
+export const authorizeGet = asyncHandler(
+  async (req: Request, res: Response) => {
+    const clientId = String((req.query.client_id || req.body.client_id) ?? "");
+    const redirectUri = String(
+      (req.query.redirect_uri || req.body.redirect_uri) ?? "",
+    );
 
-  const client = getOidcClient(clientId);
-  if (!client) {
-    return res.status(400).json({ error: "invalid_client" });
-  }
-  if (!redirectUri || !isValidRedirectUri(client, redirectUri)) {
-    return res.status(400).json({
-      error: "invalid_request",
-      error_description: "invalid redirect_uri",
+    const client = await getOidcClientAnySource(clientId);
+    if (!client) {
+      throw new ApiError(400, "invalid_client");
+    }
+    if (!redirectUri || !isValidRedirectUri(client, redirectUri)) {
+      throw new ApiError(400, "invalid redirect_uri");
+    }
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          {
+            clientName: client.clientName,
+            redirectUri: redirectUri,
+            clientId: client.clientId,
+          },
+          "Client_id is valid",
+        ),
+      );
+  },
+);
+export const authorizePost = asyncHandler(
+  async (req: Request, res: Response) => {
+    const clientId = String(req.body?.client_id ?? "");
+
+    const redirectUri = String(req.body?.redirect_uri ?? "");
+
+    const emailOrUsername = String(req.body?.emailOrUsername ?? "");
+
+    const password = String(req.body?.password ?? "");
+
+    /* validate required fields */
+    if (!clientId || !redirectUri || !emailOrUsername || !password) {
+      throw new ApiError(400, "Missing required fields");
+    }
+
+    /* verify client */
+    const client = await getOidcClientAnySource(clientId);
+
+    if (!client) {
+      throw new ApiError(400, "Invalid client");
+    }
+
+    /* verify redirect uri */
+    if (!isValidRedirectUri(client, redirectUri)) {
+      throw new ApiError(400, "Invalid redirect uri");
+    }
+
+    /* authenticate user */
+    const user = await db.query.users.findFirst({
+      where: or(
+        eq(users.email, emailOrUsername.toLowerCase()),
+        eq(users.username, emailOrUsername),
+      ),
     });
-  }
 
-  if (responseType !== "code") {
-    return res.redirect(
-      oauthError(
-        redirectUri,
-        "unsupported_response_type",
-        state,
-        "response_type must be code",
-      ),
+    if (!user) {
+      throw new ApiError(401, "Invalid credentials");
+    }
+
+    const validPassword = await bcrypt.compare(
+      String(password),
+      user.passwordHash,
     );
-  }
 
-  if (!scope || !requireOpenIdScope(scope)) {
-    return res.redirect(
-      oauthError(
-        redirectUri,
-        "invalid_scope",
-        state,
-        "scope must include openid",
-      ),
-    );
-  }
+    if (!validPassword) {
+      throw new ApiError(401, "Invalid credentials");
+    }
 
-  if (!codeChallenge || codeChallengeMethod !== "S256") {
-    return res.redirect(
-      oauthError(
-        redirectUri,
-        "invalid_request",
-        state,
-        "PKCE S256 is required",
-      ),
-    );
-  }
+    /* generate auth code */
+    const authCode = randomToken(32);
 
-  return res
-    .status(200)
-    .type("html")
-    .send(
-      renderLoginForm({
-        action: "/oidc/authorize",
-        clientId,
-        redirectUri,
-        responseType,
-        scope,
-        state,
-        nonce,
-        codeChallenge,
-        codeChallengeMethod,
-      }),
-    );
-}
+    const expiresAt = addMinutes(new Date(), 10);
 
-export async function authorizePost(req: Request, res: Response) {
+    /* save authorization code */
+    await db.insert(oidcAuthCodes).values({
+      code: authCode,
+      clientId,
+      redirectUri,
+      userId: user.id,
+      scope: "openid",
+      expiresAt,
+    });
+    if (process.env.ENVIRONMENT === "production") {
+      /* redirect back to client */
+      return res.redirect(
+        oauthRedirect(redirectUri, {
+          code: authCode,
+        }),
+      );
+    } else {
+      return res.status(200).json({
+        code: authCode,
+      });
+    }
+  },
+);
+
+export const token = asyncHandler(async (req: Request, res: Response) => {
   const clientId = String(req.body?.client_id ?? "");
-  const redirectUri = String(req.body?.redirect_uri ?? "");
-  const responseType = String(req.body?.response_type ?? "");
-  const scope = String(req.body?.scope ?? "");
-  const state = req.body?.state ? String(req.body?.state) : undefined;
-  const nonce = req.body?.nonce ? String(req.body?.nonce) : undefined;
-  const codeChallenge = String(req.body?.code_challenge ?? "");
-  const codeChallengeMethod = String(req.body?.code_challenge_method ?? "");
 
-  const emailOrUsername = String(req.body?.emailOrUsername ?? "");
-  const password = String(req.body?.password ?? "");
+  const clientSecret = String(req.body?.client_secret ?? "");
 
-  const client = getOidcClient(clientId);
+  const code = String(req.body?.code ?? "");
+
+  if (!clientId || !clientSecret || !code) {
+    throw new ApiError(400, "client_id, client_secret and code are required");
+  }
+
+  /* find client */
+  const client = await db.query.oidcClients.findFirst({
+    where: eq(oidcClients.clientId, clientId),
+  });
+
   if (!client) {
-    return res.status(400).json({ error: "invalid_client" });
-  }
-  if (!redirectUri || !isValidRedirectUri(client, redirectUri)) {
-    return res.status(400).json({
-      error: "invalid_request",
-      error_description: "invalid redirect_uri",
-    });
+    throw new ApiError(401, "invalid_client");
   }
 
-  if (responseType !== "code") {
-    return res.redirect(
-      oauthError(
-        redirectUri,
-        "unsupported_response_type",
-        state,
-        "response_type must be code",
-      ),
-    );
+  /* verify client secret */
+  const secretValid = await bcrypt.compare(
+    clientSecret,
+    client.clientSecret ?? "",
+  );
+
+  if (!secretValid) {
+    throw new ApiError(401, "invalid_client_secret");
   }
 
-  if (!scope || !requireOpenIdScope(scope)) {
-    return res.redirect(
-      oauthError(
-        redirectUri,
-        "invalid_scope",
-        state,
-        "scope must include openid",
-      ),
-    );
+  /* verify auth code */
+  const codeRow = await db.query.oidcAuthCodes.findFirst({
+    where: eq(oidcAuthCodes.code, code),
+  });
+
+  if (!codeRow) {
+    throw new ApiError(400, "invalid_code");
   }
 
-  if (!codeChallenge || codeChallengeMethod !== "S256") {
-    return res.redirect(
-      oauthError(
-        redirectUri,
-        "invalid_request",
-        state,
-        "PKCE S256 is required",
-      ),
-    );
+  if (codeRow.clientId !== clientId) {
+    throw new ApiError(400, "code does not belong to client");
   }
 
-  if (!emailOrUsername || !password) {
-    return res.status(400).type("html").send("Missing credentials");
+  if (codeRow.consumedAt) {
+    throw new ApiError(400, "code already used");
   }
 
+  if (new Date() > codeRow.expiresAt) {
+    throw new ApiError(400, "code expired");
+  }
+
+  /* consume one-time code */
+  await db
+    .update(oidcAuthCodes)
+    .set({
+      consumedAt: new Date(),
+    })
+    .where(eq(oidcAuthCodes.id, codeRow.id));
+
+  /* fetch user */
   const user = await db.query.users.findFirst({
-    where: or(
-      eq(users.email, emailOrUsername.toLowerCase()),
-      eq(users.username, emailOrUsername),
-    ),
+    where: eq(users.id, codeRow.userId),
   });
 
   if (!user) {
-    return res.status(401).type("html").send("Invalid credentials");
+    throw new ApiError(404, "user not found");
   }
 
-  const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) {
-    return res.status(401).type("html").send("Invalid credentials");
-  }
+  /* sign JWT using private key */
+  const accessToken = signIdToken({
+    claims: {
+      iss: issuer(),
+      sub: String(user.id),
+      aud: clientId,
 
-  const code = randomToken(32);
-  const expiresAt = addMinutes(new Date(), 10);
+      email: user.email,
+      userName: user.username,
+      name: user.fullName ?? user.username,
 
-  await db.insert(oidcAuthCodes).values({
-    code,
-    clientId,
-    redirectUri,
-    userId: user.id,
-    scope,
-    nonce: nonce ?? null,
-    codeChallenge,
-    codeChallengeMethod,
-    expiresAt,
+      picture: user.picture ?? undefined,
+    },
   });
 
-  return res.redirect(
-    oauthRedirect(redirectUri, {
-      code,
-      state,
-    }),
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        token_type: "Bearer",
+        access_token: accessToken,
+        expires_in: 900,
+      },
+      "Token Generated Successfully",
+    ),
   );
-}
+});
 
-export async function token(req: Request, res: Response) {
-  // Accept both JSON and x-www-form-urlencoded (Express will parse based on middleware)
-  const grantType = String(req.body?.grant_type ?? "");
-  const clientId = String(req.body?.client_id ?? "");
+export const createOidcClient = asyncHandler(
+  //TODO: Same client cannot have organisations of same name
 
-  const client = getOidcClient(clientId);
-  if (!client) {
-    return res.status(400).json({ error: "invalid_client" });
-  }
+  async (req: Request, res: Response) => {
+    // Expects form fields (x-www-form-urlencoded or JSON).
+    // Note: Express does NOT parse multipart/form-data without extra middleware.
+    const organisationName = String(
+      req.body?.organisationName ?? req.body?.organisation ?? "",
+    ).trim();
+    const redirectUrisRaw = String(
+      req.body?.redirectUris ?? req.body?.redirect_uris ?? "",
+    ).trim();
 
-  if (!clientAuthOk(req, client)) {
-    return res.status(401).json({ error: "invalid_client" });
-  }
-
-  if (grantType === "authorization_code") {
-    const code = String(req.body?.code ?? "");
-    const redirectUri = String(req.body?.redirect_uri ?? "");
-    const codeVerifier = String(req.body?.code_verifier ?? "");
-
-    if (!code || !redirectUri || !codeVerifier) {
-      return res.status(400).json({ error: "invalid_request" });
+    if (!organisationName) {
+      throw new ApiError(400, "organisationName is required");
     }
 
-    const codeRow = await db.query.oidcAuthCodes.findFirst({
-      where: eq(oidcAuthCodes.code, code),
-    });
-
-    if (!codeRow) {
-      return res.status(400).json({ error: "invalid_grant" });
+    const redirectUris = parseRedirectUrisRaw(redirectUrisRaw);
+    if (redirectUris.length === 0) {
+      throw new ApiError(400, "redirectUris (comma-separated) is required");
     }
 
-    if (codeRow.clientId !== clientId || codeRow.redirectUri !== redirectUri) {
-      return res.status(400).json({ error: "invalid_grant" });
+    for (const uri of redirectUris) {
+      try {
+        // eslint-disable-next-line no-new
+        new URL(uri);
+      } catch {
+        throw new ApiError(400, `Invalid redirect URI: ${uri}`);
+      }
     }
 
-    if (codeRow.consumedAt) {
-      return res.status(400).json({ error: "invalid_grant" });
+    const clientSecretRaw = randomToken(48);
+    const clientSecretHash = clientSecretRaw
+      ? await bcrypt.hash(clientSecretRaw, 12)
+      : null;
+
+    // Retry a few times in the unlikely case of collision.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const clientId = `client_${randomToken(16)}`;
+
+      const [created] = await db
+        .insert(oidcClients)
+        .values({
+          clientId,
+          clientName: organisationName,
+          clientSecret: clientSecretHash,
+          redirectUris: redirectUris.join(","),
+        })
+        .returning({
+          clientId: oidcClients.clientId,
+          redirectUris: oidcClients.redirectUris,
+
+          createdAt: oidcClients.createdAt,
+          clientName: oidcClients.clientName,
+        });
+
+      return res.status(201).json(
+        new ApiResponse(200, {
+          clientName: created.clientName,
+          client_id: created.clientId,
+          client_secret: clientSecretRaw,
+          redirect_uris: parseRedirectUrisRaw(created.redirectUris),
+
+          created_at: created.createdAt,
+        }),
+      );
     }
-
-    if (new Date() > codeRow.expiresAt) {
-      return res.status(400).json({ error: "invalid_grant" });
-    }
-
-    if (!pkceVerifyS256(codeVerifier, codeRow.codeChallenge)) {
-      return res.status(400).json({ error: "invalid_grant" });
-    }
-
-    // consume code
-    await db
-      .update(oidcAuthCodes)
-      .set({ consumedAt: new Date() })
-      .where(eq(oidcAuthCodes.id, codeRow.id));
-
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, codeRow.userId),
-    });
-
-    if (!user) {
-      return res.status(400).json({ error: "invalid_grant" });
-    }
-
-    const scopeParts = parseScope(codeRow.scope);
-
-    const accessTokenRaw = randomToken(32);
-    const accessTokenHash = hashToken(accessTokenRaw);
-    const accessExpiresAt = addMinutes(new Date(), 15);
-
-    await db.insert(oidcAccessTokens).values({
-      tokenHash: accessTokenHash,
-      clientId,
-      userId: user.id,
-      scope: codeRow.scope,
-      expiresAt: accessExpiresAt,
-    });
-
-    const includeRefresh = scopeParts.includes("offline_access");
-    let refreshTokenRaw: string | undefined;
-
-    if (includeRefresh) {
-      refreshTokenRaw = randomToken(48);
-      const refreshTokenHash = hashToken(refreshTokenRaw);
-      const refreshExpiresAt = addDays(new Date(), 30);
-
-      await db.insert(oidcRefreshTokens).values({
-        tokenHash: refreshTokenHash,
-        clientId,
-        userId: user.id,
-        scope: codeRow.scope,
-        expiresAt: refreshExpiresAt,
-      });
-    }
-
-    const iss = issuer();
-    const claims: any = {
-      iss,
-      sub: String(user.id),
-      aud: clientId,
-      nonce: codeRow.nonce ?? undefined,
-      auth_time: nowSeconds(),
-    };
-
-    if (scopeParts.includes("email")) {
-      claims.email = user.email;
-      claims.email_verified = Boolean(user.emailVerified);
-    }
-
-    if (scopeParts.includes("profile")) {
-      claims.name = user.fullName ?? user.username;
-      claims.picture = user.picture ?? undefined;
-    }
-
-    const idToken = signIdToken({ claims });
-
-    return res.json({
-      access_token: accessTokenRaw,
-      token_type: "Bearer",
-      expires_in: 15 * 60,
-      scope: codeRow.scope,
-      id_token: idToken,
-      refresh_token: refreshTokenRaw,
-    });
-  }
-
-  if (grantType === "refresh_token") {
-    const refreshTokenRaw = String(req.body?.refresh_token ?? "");
-    if (!refreshTokenRaw) {
-      return res.status(400).json({ error: "invalid_request" });
-    }
-
-    const refreshTokenHash = hashToken(refreshTokenRaw);
-    const tokenRow = await db.query.oidcRefreshTokens.findFirst({
-      where: and(
-        eq(oidcRefreshTokens.tokenHash, refreshTokenHash),
-        isNull(oidcRefreshTokens.revokedAt),
-      ),
-    });
-
-    if (!tokenRow) {
-      return res.status(400).json({ error: "invalid_grant" });
-    }
-
-    if (tokenRow.clientId !== clientId) {
-      return res.status(400).json({ error: "invalid_grant" });
-    }
-
-    if (new Date() > tokenRow.expiresAt) {
-      return res.status(400).json({ error: "invalid_grant" });
-    }
-
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, tokenRow.userId),
-    });
-
-    if (!user) {
-      return res.status(400).json({ error: "invalid_grant" });
-    }
-
-    // rotate refresh token
-    const newRefreshTokenRaw = randomToken(48);
-    const newRefreshTokenHash = hashToken(newRefreshTokenRaw);
-
-    await db
-      .update(oidcRefreshTokens)
-      .set({
-        revokedAt: new Date(),
-        replacedByTokenHash: newRefreshTokenHash,
-      })
-      .where(eq(oidcRefreshTokens.id, tokenRow.id));
-
-    await db.insert(oidcRefreshTokens).values({
-      tokenHash: newRefreshTokenHash,
-      clientId,
-      userId: user.id,
-      scope: tokenRow.scope,
-      expiresAt: addDays(new Date(), 30),
-    });
-
-    const accessTokenRaw = randomToken(32);
-    const accessTokenHash = hashToken(accessTokenRaw);
-    const accessExpiresAt = addMinutes(new Date(), 15);
-
-    await db.insert(oidcAccessTokens).values({
-      tokenHash: accessTokenHash,
-      clientId,
-      userId: user.id,
-      scope: tokenRow.scope,
-      expiresAt: accessExpiresAt,
-    });
-
-    const scopeParts = parseScope(tokenRow.scope);
-    const iss = issuer();
-
-    const claims: any = {
-      iss,
-      sub: String(user.id),
-      aud: clientId,
-      auth_time: nowSeconds(),
-    };
-
-    if (scopeParts.includes("email")) {
-      claims.email = user.email;
-      claims.email_verified = Boolean(user.emailVerified);
-    }
-
-    if (scopeParts.includes("profile")) {
-      claims.name = user.fullName ?? user.username;
-      claims.picture = user.picture ?? undefined;
-    }
-
-    const idToken = signIdToken({ claims });
-
-    return res.json({
-      access_token: accessTokenRaw,
-      token_type: "Bearer",
-      expires_in: 15 * 60,
-      scope: tokenRow.scope,
-      id_token: idToken,
-      refresh_token: newRefreshTokenRaw,
-    });
-  }
-
-  return res.status(400).json({ error: "unsupported_grant_type" });
-}
+  },
+);
 
 export async function userinfo(req: Request, res: Response) {
   const header = req.header("authorization") ?? req.header("Authorization");

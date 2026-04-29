@@ -9,6 +9,9 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from "../utils/jwt";
+import { asyncHandler } from "../utils/asyncHandler";
+import { ApiError } from "../utils/ApiError";
+import { ApiResponse } from "../utils/ApiResponse";
 
 function sanitizeUser(user: any) {
   // Avoid returning secrets (hashes/tokens)
@@ -16,14 +19,15 @@ function sanitizeUser(user: any) {
   const { passwordHash, refreshToken, ...safe } = user;
   return safe;
 }
-
-export async function register(req: Request, res: Response) {
+const options = {
+  httpOnly: true,
+  secure: true,
+};
+export const register = asyncHandler(async (req: Request, res: Response) => {
   const { username, email, password, fullName, phone } = req.body ?? {};
 
   if (!username || !email || !password) {
-    return res
-      .status(400)
-      .json({ message: "username, email, password are required" });
+    throw new ApiError(400, "username, email, password are required");
   }
 
   const existing = await db.query.users.findFirst({
@@ -32,68 +36,65 @@ export async function register(req: Request, res: Response) {
   });
 
   if (existing) {
-    return res.status(409).json({ message: "User already exists" });
+    throw new ApiError(409, "User already exists");
   }
 
   const passwordHash = await bcrypt.hash(String(password), 12);
 
-  try {
-    const [created] = await db
-      .insert(users)
-      .values({
-        username: String(username),
-        email: String(email).toLowerCase(),
-        fullName: fullName ? String(fullName) : null,
-        phone: phone ? String(phone) : null,
-        passwordHash,
-      })
-      .returning({
-        id: users.id,
-        username: users.username,
-        email: users.email,
-        fullName: users.fullName,
-        phone: users.phone,
-        picture: users.picture,
-        createdAt: users.createdAt,
-        updatedAt: users.updatedAt,
-      });
-
-    const accessToken = signAccessToken({
-      userId: created.id,
-      email: created.email,
-      username: created.username,
+  const [created] = await db
+    .insert(users)
+    .values({
+      username: String(username),
+      email: String(email).toLowerCase(),
+      fullName: fullName ? String(fullName) : null,
+      phone: phone ? String(phone) : null,
+      passwordHash,
+    })
+    .returning({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      fullName: users.fullName,
+      phone: users.phone,
+      picture: users.picture,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
     });
 
-    const refreshTokenRaw = signRefreshToken({ userId: created.id });
-    const refreshTokenHash = await bcrypt.hash(refreshTokenRaw, 12);
+  const accessToken = signAccessToken({
+    userId: created.id,
+    email: created.email,
+    username: created.username,
+  });
 
-    await db
-      .update(users)
-      .set({ refreshToken: refreshTokenHash, updatedAt: new Date() })
-      .where(eq(users.id, created.id));
+  const refreshTokenRaw = signRefreshToken({ userId: created.id });
+  const refreshTokenHash = await bcrypt.hash(refreshTokenRaw, 12);
 
-    return res.status(201).json({
-      user: created,
-      tokens: {
-        accessToken,
-        refreshToken: refreshTokenRaw,
+  await db
+    .update(users)
+    .set({ refreshToken: refreshTokenHash, updatedAt: new Date() })
+    .where(eq(users.id, created.id));
+
+  return res.status(201).json(
+    new ApiResponse(
+      201,
+      {
+        user: created,
+        tokens: {
+          accessToken,
+          refreshToken: refreshTokenRaw,
+        },
       },
-    });
-  } catch (err: any) {
-    if (err?.code === "23505") {
-      return res.status(409).json({ message: "User already exists" });
-    }
-    return res.status(500).json({ message: "Registration failed" });
-  }
-}
+      "User Registered Succesfully",
+    ),
+  );
+});
 
-export async function login(req: Request, res: Response) {
+export const login = asyncHandler(async (req: Request, res: Response) => {
   const { emailOrUsername, password } = req.body ?? {};
 
   if (!emailOrUsername || !password) {
-    return res
-      .status(400)
-      .json({ message: "emailOrUsername and password are required" });
+    throw new ApiError(400, "emailOrUsername and password are required");
   }
 
   const user = await db.query.users.findFirst({
@@ -104,16 +105,16 @@ export async function login(req: Request, res: Response) {
   });
 
   if (!user) {
-    return res.status(401).json({ message: "Invalid credentials" });
+    throw new ApiError(401, "Invalid credentials");
   }
 
   if (user.isActive === false || user.isLocked === true) {
-    return res.status(403).json({ message: "Account disabled" });
+    throw new ApiError(403, "Account disabled");
   }
 
   const ok = await bcrypt.compare(String(password), user.passwordHash);
   if (!ok) {
-    return res.status(401).json({ message: "Invalid credentials" });
+    throw new ApiError(401, "Invalid credentials");
   }
 
   const accessToken = signAccessToken({
@@ -134,77 +135,97 @@ export async function login(req: Request, res: Response) {
     })
     .where(eq(users.id, user.id));
 
-  return res.json({
-    user: sanitizeUser(user),
-    tokens: {
-      accessToken,
-      refreshToken: refreshTokenRaw,
-    },
-  });
-}
+  return res
+    .status(201)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+      new ApiResponse(
+        201,
+        {
+          user: sanitizeUser(user),
+          tokens: {
+            accessToken,
+            refreshToken: refreshTokenRaw,
+          },
+        },
+        "Login Succesfully",
+      ),
+    );
+});
 
-export async function refreshToken(req: Request, res: Response) {
-  const { refreshToken: token } = req.body ?? {};
-  if (!token) {
-    return res.status(400).json({ message: "refreshToken is required" });
-  }
+export const refreshToken = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { refreshToken: token } = (req.body || req.cookies) ?? {};
+    if (!token) {
+      return res.status(400).json({ message: "refreshToken is required" });
+    }
 
-  let payload: { sub: string };
-  try {
+    let payload: { sub: string };
+
     payload = verifyRefreshToken(String(token));
-  } catch {
-    return res.status(401).json({ message: "Invalid refresh token" });
-  }
 
-  const userId = Number(payload.sub);
-  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
-  if (!user || !user.refreshToken) {
-    return res.status(401).json({ message: "Invalid refresh token" });
-  }
+    const userId = Number(payload.sub);
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+    if (!user || !user.refreshToken) {
+      throw new ApiError(401, "Invalid refresh token");
+    }
 
-  const matches = await bcrypt.compare(String(token), user.refreshToken);
-  if (!matches) {
-    return res.status(401).json({ message: "Invalid refresh token" });
-  }
+    const matches = await bcrypt.compare(String(token), user.refreshToken);
+    if (!matches) {
+      throw new ApiError(401, "Invalid refresh token");
+    }
 
-  const accessToken = signAccessToken({
-    userId: user.id,
-    email: user.email,
-    username: user.username,
-  });
+    const accessToken = signAccessToken({
+      userId: user.id,
+      email: user.email,
+      username: user.username,
+    });
 
-  const refreshTokenRaw = signRefreshToken({ userId: user.id });
-  const refreshTokenHash = await bcrypt.hash(refreshTokenRaw, 12);
+    const refreshTokenRaw = signRefreshToken({ userId: user.id });
+    const refreshTokenHash = await bcrypt.hash(refreshTokenRaw, 12);
 
-  await db
-    .update(users)
-    .set({ refreshToken: refreshTokenHash, updatedAt: new Date() })
-    .where(eq(users.id, user.id));
+    await db
+      .update(users)
+      .set({ refreshToken: refreshTokenHash, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
 
-  return res.json({
-    tokens: {
-      accessToken,
-      refreshToken: refreshTokenRaw,
-    },
-  });
-}
+    return res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", refreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          {
+            tokens: {
+              accessToken,
+              refreshToken: refreshTokenRaw,
+            },
+          },
+          "Token recreated",
+        ),
+      );
+  },
+);
 
 export async function logout(req: Request, res: Response) {
   const { refreshToken: token } = req.body ?? {};
 
   // Prefer refresh token logout (works even if access expired)
   if (token) {
-    try {
-      const payload = verifyRefreshToken(String(token));
-      const userId = Number(payload.sub);
-      await db
-        .update(users)
-        .set({ refreshToken: null, updatedAt: new Date() })
-        .where(eq(users.id, userId));
-      return res.status(204).send();
-    } catch {
-      return res.status(204).send();
-    }
+    const payload = verifyRefreshToken(String(token));
+    const userId = Number(payload.sub);
+    await db
+      .update(users)
+      .set({ refreshToken: null, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+    return res
+      .status(204)
+      .clearCookie("accessToken", options)
+      .clearCookie("refreshToken", options);
   }
 
   // Fallback: if already authenticated, revoke the stored refresh token
@@ -215,5 +236,8 @@ export async function logout(req: Request, res: Response) {
       .where(eq(users.id, req.user.id));
   }
 
-  return res.status(204).send();
+  return res
+    .status(204)
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options);
 }

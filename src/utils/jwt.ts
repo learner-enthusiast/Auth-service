@@ -4,7 +4,8 @@ import jwt, {
   type SignOptions,
 } from "jsonwebtoken";
 import crypto from "node:crypto";
-
+import { ApiError } from "./ApiError";
+import "dotenv/config";
 export type AccessTokenPayload = {
   sub: string;
   email: string;
@@ -69,7 +70,7 @@ export function signRefreshToken(input: { userId: number }) {
 export function verifyAccessToken(token: string): AccessTokenPayload {
   const decoded = jwt.verify(token, accessSecret()) as JwtPayload;
   if (decoded?.typ !== "access") {
-    throw new Error("Invalid access token");
+    throw new ApiError(400, "Invalid access token");
   }
   return decoded as unknown as AccessTokenPayload;
 }
@@ -77,7 +78,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 export function verifyRefreshToken(token: string): RefreshTokenPayload {
   const decoded = jwt.verify(token, refreshSecret()) as JwtPayload;
   if (decoded?.typ !== "refresh") {
-    throw new Error("Invalid refresh token");
+    throw new ApiError(400, "Invalid refresh token");
   }
   return decoded as unknown as RefreshTokenPayload;
 }
