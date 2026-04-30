@@ -47,7 +47,25 @@ app.use("/oidc", oidcRoutes);
 
 app.get("/.well-known/openid-configuration", oidcDiscovery);
 app.get("/.well-known/jwks.json", oidcJwks);
+app.get("/accounts", (req, res) => {
+  const clientId = String(req.query.client_id ?? "");
+  const redirectUri = String(req.query.redirect_uri ?? "");
 
+  if (!clientId || !redirectUri) {
+    return res.status(400).json({
+      error: "client_id and redirect_uri are required",
+    });
+  }
+
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+
+  const loginUrl = new URL(`${frontendUrl}/oauth/login`);
+
+  loginUrl.searchParams.set("client_id", clientId);
+  loginUrl.searchParams.set("redirect_uri", redirectUri);
+
+  return res.redirect(loginUrl.toString());
+});
 app.get("/health", (_req: express.Request, res: express.Response) => {
   return res.json({ health: "good" });
 });

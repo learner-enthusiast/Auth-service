@@ -8,7 +8,6 @@ import { AppLayout } from "./layouts/AppLayout";
 import OauthLogin from "./pages/OauthLogin";
 import { Clients } from "./pages/Clients.tsx";
 import { Client } from "./pages/Client.tsx";
-import { Docs } from "./pages/Docs.tsx";
 
 function App() {
   return (
