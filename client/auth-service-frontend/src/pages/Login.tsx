@@ -16,6 +16,10 @@ import { Label } from "@/components/ui/label";
 
 import * as authApi from "@/backendRoutes/auth";
 import { useAuth } from "@/state/auth/AuthContext";
+import {
+  setAccessTokenCookie,
+  setRefreshTokenCookie,
+} from "@/state/auth/cookies";
 
 type FieldErrors = Partial<Record<"username" | "email" | "password", string>>;
 
@@ -30,12 +34,6 @@ function zodFieldErrors(error: z.ZodError): FieldErrors {
   return out;
 }
 
-function setAccessTokenCookie(token: string) {
-  document.cookie = `accessToken=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
-}
-function setRefreshTokenCookie(token: string) {
-  document.cookie = `refreshToken=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
-}
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
 
@@ -48,13 +46,9 @@ export default function AuthPage() {
   const location = useLocation();
   const { refreshFromCookies } = useAuth();
 
-  const redirectTo =
-    typeof (location.state as { from?: { pathname?: string } } | null)?.from
-      ?.pathname === "string" &&
-    (location.state as { from?: { pathname?: string } } | null)?.from?.pathname
-      ? (location.state as { from?: { pathname?: string } } | null)?.from
-          ?.pathname
-      : "/";
+  const redirectTo: string =
+    (location.state as { from?: { pathname?: string } } | null)?.from
+      ?.pathname ?? "/";
 
   const loginSchema = useMemo(
     () =>

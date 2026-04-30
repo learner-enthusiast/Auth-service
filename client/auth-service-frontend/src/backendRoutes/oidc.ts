@@ -7,13 +7,6 @@ export type CreateOidcClientInput = {
   isConfidential?: boolean;
 };
 
-export async function createOidcClient(input: CreateOidcClientInput) {
-  // POST http://localhost:3000/oidc/clients
-  // Note: this route is protected in backend (requireAuth)
-  const res = await api.post("/oidc/clients", input);
-  return res.data as unknown;
-}
-
 export type AuthorizeGetQuery = {
   client_id: string;
   redirect_uri: string;
@@ -43,5 +36,36 @@ export async function authorizePost(body: AuthorizePostBody) {
     maxRedirects: 0,
     validateStatus: (status) => status >= 200 && status < 400,
   });
+  return res;
+}
+
+export async function getClients() {
+  // This endpoint gets all the client created by user
+  const res = await api.get("/oidc/clients");
+  return res;
+}
+
+export type CreateClientBody = {
+  organisationName: string;
+  // Comma-separated redirect URIs
+  redirectUris: string;
+};
+
+export async function createClient(body: CreateClientBody) {
+  const res = await api.post("/oidc/clients", body);
+  return res;
+}
+
+// Backwards-compatible alias
+export async function createOidcClient(input: CreateOidcClientInput) {
+  const res = await api.post("/oidc/clients", {
+    organisationName: input.organisationName,
+    redirectUris: input.redirectUris,
+  });
+  return res.data as unknown;
+}
+
+export async function getAClient(clientId: string) {
+  const res = await api.get(`/oidc/clients/${clientId}`);
   return res;
 }

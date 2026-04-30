@@ -22,3 +22,10 @@ export function getAccessTokenFromCookies(): string | null {
   const token = getCookie("accessToken");
   return token && token.trim() ? token : null;
 }
+export function setRefreshTokenCookie(token?: string) {
+  if (!token) return;
+  document.cookie = `refreshToken=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+}
+export function setAccessTokenCookie(token: string) {
+  document.cookie = `accessToken=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+}

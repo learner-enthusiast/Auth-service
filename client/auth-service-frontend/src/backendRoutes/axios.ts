@@ -47,3 +47,73 @@ export async function apiRequest<T>(config: AxiosRequestConfig) {
   const res = await api.request<T>(config);
   return res.data;
 }
+let refreshPromise: Promise<string> | null = null;
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function extractAccessToken(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+
+  const maybeData = payload.data;
+  const candidate =
+    (isRecord(maybeData) && (maybeData as any).tokens) ||
+    (payload as any).tokens ||
+    payload;
+
+  const accessToken = (candidate as any)?.accessToken;
+  return typeof accessToken === "string" && accessToken ? accessToken : null;
+}
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const status = error?.response?.status;
+    const original = error?.config;
+
+    if (!original || status !== 401) return Promise.reject(error);
+
+    const url: string = String(original.url ?? "");
+    const isAuthEndpoint =
+      url.includes("/api/auth/login") ||
+      url.includes("/api/auth/register") ||
+      url.includes("/api/auth/refresh-token") ||
+      url.includes("/api/auth/logout");
+
+    if (isAuthEndpoint) return Promise.reject(error);
+
+    if ((original as any)._retry) return Promise.reject(error);
+    (original as any)._retry = true;
+
+    try {
+      if (!refreshPromise) {
+        refreshPromise = api
+          .post("/api/auth/refresh-token") // relies on HttpOnly refreshToken cookie
+          .then((res) => {
+            const newToken = extractAccessToken(res.data);
+            if (!newToken)
+              throw new Error("Refresh succeeded but no accessToken returned");
+            // optional: store readable accessToken cookie (your app uses this)
+            document.cookie = `accessToken=${encodeURIComponent(newToken)}; Path=/; SameSite=Lax`;
+            return newToken;
+          })
+          .finally(() => {
+            refreshPromise = null;
+          });
+      }
+
+      const newAccessToken = await refreshPromise;
+
+      original.headers = original.headers ?? {};
+      original.headers.Authorization = `Bearer ${newAccessToken}`;
+      return api.request(original);
+    } catch (e) {
+      // Refresh failed → treat as logged out
+      document.cookie = "accessToken=; Path=/; Max-Age=0; SameSite=Lax";
+      document.cookie = "refreshToken=; Path=/; Max-Age=0; SameSite=Lax";
+      window.location.href = "/login";
+      return Promise.reject(e);
+    }
+  },
+);

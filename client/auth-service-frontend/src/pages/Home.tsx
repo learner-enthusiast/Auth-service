@@ -1,11 +1,10 @@
-import { useAuth } from "@/state/auth/AuthContext";
 import "../App.css";
+import { Docs } from "./Docs";
 
 export function Home() {
-  const { accessToken } = useAuth();
   return (
     <>
-      <div className="text-red-500">ttettt</div>
+      <Docs />
     </>
   );
 }

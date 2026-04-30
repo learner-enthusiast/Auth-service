@@ -452,20 +452,22 @@ export const listMyOidcClients = asyncHandler(
       orderBy: (t, { desc }) => [desc(t.createdAt)],
     });
 
-    return res.status(200).json(
-      new ApiResponse(
-        200,
-        {
-          clients: clients.map((c) => ({
-            clientId: c.clientId,
-            clientName: c.clientName,
-            redirectUris: parseRedirectUrisRaw(c.redirectUris),
-            createdAt: c.createdAt,
-          })),
-        },
-        "Clients fetched",
-      ),
-    );
+    const formatted = clients.map((c) => ({
+      clientId: c.clientId,
+      clientName: c.clientName,
+      redirectUris: parseRedirectUrisRaw(c.redirectUris),
+      createdAt: c.createdAt,
+    }));
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          { clients: formatted },
+          formatted.length === 0 ? "No clients found" : "Clients fetched",
+        ),
+      );
   },
 );
 

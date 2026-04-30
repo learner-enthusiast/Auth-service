@@ -61,3 +61,9 @@ export async function login(input: LoginInput): Promise<Tokens> {
   }
   return tokens;
 }
+
+export async function logout() {
+  // POST http://localhost:3000/api/auth/logout
+  const res = await api.post("/api/auth/logout");
+  return res.data as unknown;
+}

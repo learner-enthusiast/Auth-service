@@ -259,5 +259,6 @@ export async function logout(req: AuthedRequest, res: Response) {
   return res
     .status(204)
     .clearCookie("accessToken", accessTokenCookieOptions)
-    .clearCookie("refreshToken", refreshTokenCookieOptions);
+    .clearCookie("refreshToken", refreshTokenCookieOptions)
+    .json(new ApiResponse(204, {}, "Logged out Succesfully"));
 }
