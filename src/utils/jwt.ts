@@ -6,6 +6,7 @@ import jwt, {
 import crypto from "node:crypto";
 import { ApiError } from "./ApiError";
 import "dotenv/config";
+import { ENV } from "./env_constants";
 export type AccessTokenPayload = {
   sub: string;
   email: string;
@@ -20,7 +21,7 @@ export type RefreshTokenPayload = {
 };
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = ENV[name];
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
   }
@@ -28,17 +29,15 @@ function requireEnv(name: string): string {
 }
 
 function accessSecret(): string {
-  return process.env.JWT_ACCESS_SECRET ?? requireEnv("JWT_SECRET");
+  return ENV.JWT_ACCESS_SECRET ?? requireEnv("JWT_SECRET");
 }
 
 function refreshSecret(): string {
-  return process.env.JWT_REFRESH_SECRET ?? requireEnv("JWT_SECRET");
+  return ENV.JWT_REFRESH_SECRET ?? requireEnv("JWT_SECRET");
 }
 
-const ACCESS_TTL = (process.env.ACCESS_TOKEN_TTL ??
-  "15m") as SignOptions["expiresIn"];
-const REFRESH_TTL = (process.env.REFRESH_TOKEN_TTL ??
-  "7d") as SignOptions["expiresIn"];
+const ACCESS_TTL = (ENV.ACCESS_TOKEN_TTL ?? "15m") as SignOptions["expiresIn"];
+const REFRESH_TTL = (ENV.REFRESH_TOKEN_TTL ?? "7d") as SignOptions["expiresIn"];
 
 export function signAccessToken(input: {
   userId: number;

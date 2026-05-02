@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { ENV } from "./env_constants";
 
 export type OidcClient = {
   clientId: string;
@@ -7,32 +8,30 @@ export type OidcClient = {
 };
 
 export function issuer(): string {
-  return (
-    process.env.OIDC_ISSUER ?? `http://localhost:${process.env.PORT ?? 3000}`
-  );
+  return ENV.OIDC_ISSUER ?? `http://localhost:${ENV.PORT ?? 3000}`;
 }
 
-export function getOidcClient(clientId: string): OidcClient | null {
-  // MVP: a single env-configured client.
-  // You can extend this to multiple clients by encoding JSON in env.
-  const envClientId = process.env.OIDC_CLIENT_ID ?? "oidc-client";
-  if (clientId !== envClientId) return null;
+// export function getOidcClient(clientId: string): OidcClient | null {
+//   // MVP: a single env-configured client.
+//   // You can extend this to multiple clients by encoding JSON in env.
+//   const envClientId = ENV.OIDC_CLIENT_ID ?? "oidc-client";
+//   if (clientId !== envClientId) return null;
 
-  const redirectUrisRaw =
-    process.env.OIDC_REDIRECT_URIS ?? "http://localhost:5173/callback";
-  const redirectUris = redirectUrisRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+//   const redirectUrisRaw =
+//     ENV.OIDC_REDIRECT_URIS ?? "http://localhost:5173/callback";
+//   const redirectUris = redirectUrisRaw
+//     .split(",")
+//     .map((s) => s.trim())
+//     .filter(Boolean);
 
-  const clientSecret = process.env.OIDC_CLIENT_SECRET;
+//   const clientSecret = ENV.OIDC_CLIENT_SECRET;
 
-  return {
-    clientId: envClientId,
-    clientSecret: clientSecret?.trim() ? clientSecret : undefined,
-    redirectUris,
-  };
-}
+//   return {
+//     clientId: envClientId,
+//     clientSecret: clientSecret?.trim() ? clientSecret : undefined,
+//     redirectUris,
+//   };
+// }
 
 export function isValidRedirectUri(client: OidcClient, redirectUri: string) {
   return client.redirectUris.includes(redirectUri);

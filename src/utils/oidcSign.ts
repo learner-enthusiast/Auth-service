@@ -1,16 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import jwt, { type SignOptions } from "jsonwebtoken";
+import { ENV } from "./env_constants";
 
 let cachedPrivateKey: string | null = null;
 let cachedKid: string | null = null;
 
 function privateKeyPath() {
-  return process.env.OIDC_PRIVATE_KEY_PATH ?? "./keys/oidc/private.pem";
+  return ENV.OIDC_PRIVATE_KEY_PATH ?? "./keys/oidc/private.pem";
 }
 
 function kidPath() {
-  return process.env.OIDC_KID_PATH ?? "./keys/oidc/kid.txt";
+  return ENV.OIDC_KID_PATH ?? "./keys/oidc/kid.txt";
 }
 
 function loadPrivateKey(): string {
@@ -49,7 +50,7 @@ export function signIdToken(input: {
   expiresIn?: string;
 }) {
   const ttl = (input.expiresIn ??
-    (process.env.OIDC_ID_TOKEN_TTL || "5m")) as SignOptions["expiresIn"];
+    (ENV.OIDC_ID_TOKEN_TTL || "5m")) as SignOptions["expiresIn"];
   const key = loadPrivateKey();
   const kid = loadKid();
 

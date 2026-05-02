@@ -3,10 +3,11 @@ import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as UserSchema from "../models/user.schema";
 import * as OidcSchema from "../models/oidc.schema";
+import { ENV } from "../utils/env_constants";
 
 const { Pool } = pg;
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: ENV.DATABASE_URL,
 });
 
 const schema = {

@@ -22,6 +22,7 @@ import path from "node:path";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
+import { ENV } from "../utils/env_constants";
 
 function addMinutes(date: Date, minutes: number) {
   return new Date(date.getTime() + minutes * 60_000);
@@ -71,13 +72,13 @@ async function getOidcClientAnySource(clientId: string): Promise<{
   }
 
   // Fallback: env-configured client (legacy MVP behavior) Whitelisted IPS
-  // const envClientId = process.env.OIDC_CLIENT_ID ?? "oidc-client";
+  // const envClientId = ENV.OIDC_CLIENT_ID ?? "oidc-client";
   // if (clientId !== envClientId) return null;
 
   // const redirectUrisRaw =
-  //   process.env.OIDC_REDIRECT_URIS ?? "http://localhost:5173/callback";
+  //   ENV.OIDC_REDIRECT_URIS ?? "http://localhost:5173/callback";
   // const redirectUris = parseRedirectUrisRaw(redirectUrisRaw);
-  // const clientSecret = process.env.OIDC_CLIENT_SECRET;
+  // const clientSecret = ENV.OIDC_CLIENT_SECRET;
 
   // return {
   //   clientId: envClientId,
@@ -110,7 +111,7 @@ export async function oidcDiscovery(_req: Request, res: Response) {
 }
 
 export async function oidcJwks(_req: Request, res: Response) {
-  const jwksPath = process.env.OIDC_PUBLIC_JWKS_PATH ?? "./keys/oidc/jwks.json";
+  const jwksPath = ENV.OIDC_PUBLIC_JWKS_PATH ?? "./keys/oidc/jwks.json";
   const p = path.resolve(process.cwd(), jwksPath);
   const raw = fs.readFileSync(p, "utf8");
   res.type("json").send(raw);
@@ -206,7 +207,7 @@ export const authorizePost = asyncHandler(
       scope: "openid",
       expiresAt,
     });
-    if (process.env.ENVIRONMENT === "production") {
+    if (ENV.ENVIRONMENT === "production") {
       /* redirect back to client */
       return res.redirect(
         oauthRedirect(redirectUri, {

@@ -12,6 +12,7 @@ import {
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
+import { ENV } from "../utils/env_constants";
 
 type AuthedRequest = Request & {
   user?: {
@@ -28,7 +29,7 @@ function sanitizeUser(user: any) {
   return safe;
 }
 
-const isProd = process.env.NODE_ENV === "production";
+const isProd = ENV.NODE_ENV === "production";
 
 const accessTokenCookieOptions = {
   httpOnly: false,

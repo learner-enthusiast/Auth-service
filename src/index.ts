@@ -6,6 +6,7 @@ import authRoutes from "./routes/auth.routes";
 import userRoutes from "./routes/users.routes";
 import oidcRoutes from "./routes/oidc.routes";
 import { oidcDiscovery, oidcJwks } from "./controllers/oidc.controller";
+import { ENV } from "./utils/env_constants";
 
 dotenv.config();
 
@@ -57,7 +58,7 @@ app.get("/accounts", (req, res) => {
     });
   }
 
-  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const frontendUrl = ENV.FRONTEND_URL || "http://localhost:5173";
 
   const loginUrl = new URL(`${frontendUrl}/oauth/login`);
 
@@ -79,7 +80,7 @@ async function start() {
     process.exit(1);
   }
 
-  const port = Number(process.env.PORT ?? 3000);
+  const port = Number(ENV.PORT ?? 3000);
   app.listen(port, () => console.log(`App is listening at PORT : ${port}`));
 }
 
