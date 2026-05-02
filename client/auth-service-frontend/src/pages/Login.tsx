@@ -135,7 +135,8 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-zinc-950 to-red-950 text-white flex items-center justify-center px-4">
+    <div className="min-h-screen bg-linear-to-br from-black via-zinc-950 to-red-950 text-white flex flex-col gap- items-center justify-center px-4">
+      <h1 className="font-semibold text-red-500 text-4xl">Auth Mantra</h1>
       <Card className="w-full max-w-md rounded-2xl border border-red-900/60 bg-zinc-950 shadow-2xl shadow-red-950/40">
         <CardHeader className="space-y-6">
           <div className="flex rounded-xl bg-zinc-900 p-1 border border-red-900/40">

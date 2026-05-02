@@ -27,8 +27,8 @@ export function AppLayout() {
   }
   return (
     <div className="min-h-screen bg-linear-to-br from-black via-zinc-950 to-red-950 text-white">
-      <header className="relative h-14 flex items-center justify-between gap-3 px-4 bg-black border-b border-red-900/60 text-white">
-        <div className="font-semibold text-red-500">Auth Service</div>
+      <header className="sticky top-0 z-50 relative h-14 flex items-center justify-between gap-3 px-4 bg-black/80 border-b border-red-900/60 text-white backdrop-blur">
+        <div className="font-semibold text-red-500">Auth Mantra</div>
 
         <Button
           variant="ghost"

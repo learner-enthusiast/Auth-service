@@ -1,3 +1,7 @@
+import dotenv from "dotenv";
+dotenv.config({
+  path: `.env.${process.env.NODE_ENV || "development"}`,
+});
 type EnvKeys =
   | "DATABASE_URL"
   | "FRONTEND_URL"
@@ -9,7 +13,8 @@ type EnvKeys =
   | "OIDC_PRIVATE_KEY_PATH"
   | "OIDC_KID_PATH"
   | "REFRESH_TOKEN_TTL"
-  | "ACCESS_TOKEN_TTL";
+  | "ACCESS_TOKEN_TTL"
+  | "CORS_ORIGIN";
 
 function requireEnv(key: EnvKeys): string {
   const value = process.env[key];
@@ -33,4 +38,5 @@ export const ENV = {
   ACCESS_TOKEN_TTL: requireEnv("ACCESS_TOKEN_TTL"),
   REFRESH_TOKEN_TTL: requireEnv("REFRESH_TOKEN_TTL"),
   FRONTEND_URL: requireEnv("FRONTEND_URL"),
+  CORS_ORIGIN: requireEnv("CORS_ORIGIN"),
 } as const;

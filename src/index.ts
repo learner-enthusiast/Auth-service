@@ -8,14 +8,12 @@ import oidcRoutes from "./routes/oidc.routes";
 import { oidcDiscovery, oidcJwks } from "./controllers/oidc.controller";
 import { ENV } from "./utils/env_constants";
 
-dotenv.config();
+dotenv.config({
+  path: `.env.${process.env.NODE_ENV || "development"}`,
+});
 
 const app = express();
-const whitelist = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://yourapp.com",
-];
+const whitelist = ENV.CORS_ORIGIN?.split(",").map((origin) => origin.trim());
 
 app.use(
   cors({

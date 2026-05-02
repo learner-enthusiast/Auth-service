@@ -22,7 +22,7 @@ export function Docs() {
       <div className="space-y-2">
         <h1 className="text-3xl font-bold text-red-500">Documentation</h1>
         <p className="text-zinc-400">
-          Auth Service provides user login plus an OIDC (SSO) provider that
+          Auth Mantra provides user login plus an OIDC (SSO) provider that
           supports the Authorization Code flow.
         </p>
       </div>
@@ -55,8 +55,9 @@ export function Docs() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-zinc-200">
           <p>
-            Backend defaults to <InlineCode>http://localhost:3000</InlineCode>.
-            The frontend uses <InlineCode>VITE_API_URL</InlineCode> if set.
+            Backend URL is
+            <InlineCode>{import.meta.env.VITE_API_URL}</InlineCode>. The
+            frontend uses <InlineCode>VITE_API_URL</InlineCode>
           </p>
         </CardContent>
       </Card>
