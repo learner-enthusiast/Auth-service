@@ -207,12 +207,18 @@ export const authorizePost = asyncHandler(
       scope: "openid",
       expiresAt,
     });
-    if (ENV.ENVIRONMENT === "production") {
+    if (ENV.NODE_ENV === "production") {
       /* redirect back to client */
-      return res.redirect(
-        oauthRedirect(redirectUri, {
-          code: authCode,
-        }),
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            redirectUri: oauthRedirect(redirectUri, {
+              code: authCode,
+            }),
+          },
+          "Redirection URL generated",
+        ),
       );
     } else {
       return res.status(200).json({

@@ -14,7 +14,8 @@ type EnvKeys =
   | "OIDC_KID_PATH"
   | "REFRESH_TOKEN_TTL"
   | "ACCESS_TOKEN_TTL"
-  | "CORS_ORIGIN";
+  | "CORS_ORIGIN"
+  | "PORT";
 
 function requireEnv(key: EnvKeys): string {
   const value = process.env[key];
@@ -39,4 +40,5 @@ export const ENV = {
   REFRESH_TOKEN_TTL: requireEnv("REFRESH_TOKEN_TTL"),
   FRONTEND_URL: requireEnv("FRONTEND_URL"),
   CORS_ORIGIN: requireEnv("CORS_ORIGIN"),
+  PORT: requireEnv("PORT"),
 } as const;

@@ -5,7 +5,7 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+
 import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/card";
 
 import * as oidcApi from "@/backendRoutes/oidc";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ENV } from "@/lib/utils";
 
 type FieldErrors = Partial<Record<"emailOrUsername" | "password", string>>;
 
@@ -43,7 +45,6 @@ function redirectWithCode(redirectUri: string, code: string) {
 export default function OauthLogin() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-
   const clientId = searchParams.get("client_id") ?? "";
   // support both names since you asked for redirect_url
   const redirectUri =
@@ -138,21 +139,22 @@ export default function OauthLogin() {
       });
 
       // production: backend may send redirect
-      const location = res.headers?.location as string | undefined;
-      if (location) {
-        window.location.href = location;
-        return;
+      const location = res?.data?.data.redirectUri as string | undefined;
+      if (ENV.ENVIRONMENT === "production") {
+        console.log(res);
+        console.log(res?.data?.data.redirectUri);
+        if (location) {
+          window.location.href = location;
+          return;
+        }
+      } else {
+        // dev: backend returns { code }
+        const code = (res.data as { code?: string } | undefined)?.code;
+        if (code) {
+          redirectWithCode(redirectUri, code);
+          return;
+        }
       }
-
-      // dev: backend returns { code }
-      const code = (res.data as { code?: string } | undefined)?.code;
-      if (code) {
-        redirectWithCode(redirectUri, code);
-        return;
-      }
-
-      // fallback
-      navigate("/", { replace: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Login failed";
       setFormError(message);
@@ -241,6 +243,12 @@ export default function OauthLogin() {
               {loading ? "Please wait..." : "Sign In"}
             </Button>
           </form>
+          <Button
+            onClick={() => navigate("/login")}
+            className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold text-center mt-4"
+          >
+            Dont have an account ? Create one...
+          </Button>
         </CardContent>
       </Card>
     </div>

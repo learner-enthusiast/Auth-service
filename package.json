@@ -9,7 +9,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "cross-env NODE_ENV=development tsx watch src/index.ts",
-    "prod": "cross-env NODE_ENV=production npm run build && node dist/index.js",
+    "prod": "cross-env NODE_ENV=production tsx watch src/index.ts",
     "build": "tsc",
     "db:push-schema": "drizzle-kit generate && drizzle-kit migrate"
   },
